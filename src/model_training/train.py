@@ -47,9 +47,14 @@ class ModelTrainer:
             self.best_model = None
             self.best_model_name = None
 
-            # Setup MLflow
-            mlflow.set_tracking_uri(self.config["mlflow"]["tracking_uri"])
-            mlflow.set_experiment(self.config["mlflow"]["experiment_name"])
+            # Setup MLflow (if config missing keys, throw early)
+            mlflow_tracking_uri = self.config.get("mlflow", {}).get("tracking_uri", None)
+            mlflow_experiment = self.config.get("mlflow", {}).get("experiment_name", None)
+
+            if mlflow_tracking_uri:
+                mlflow.set_tracking_uri(mlflow_tracking_uri)
+            if mlflow_experiment:
+                mlflow.set_experiment(mlflow_experiment)
 
             logger.info("ModelTrainer initialized successfully")
 
@@ -77,8 +82,8 @@ class ModelTrainer:
             if len(features) == 0:
                 raise CustomException("No valid feature columns found", sys)
 
-            X = df[features]
-            y = df["cardio"]
+            X = df[features].copy()
+            y = df["cardio"].copy()
 
             # Splits
             test_size = self.config["preprocessing"]["test_size"]
@@ -106,13 +111,13 @@ class ModelTrainer:
             X_val_s = scaler.transform(X_val)
             X_test_s = scaler.transform(X_test)
 
-            X_train_s = pd.DataFrame(X_train_s, columns=features)
-            X_val_s = pd.DataFrame(X_val_s, columns=features)
-            X_test_s = pd.DataFrame(X_test_s, columns=features)
+            X_train_s = pd.DataFrame(X_train_s, columns=features, index=X_train.index)
+            X_val_s = pd.DataFrame(X_val_s, columns=features, index=X_val.index)
+            X_test_s = pd.DataFrame(X_test_s, columns=features, index=X_test.index)
 
             logger.info("Data preparation completed")
 
-            return X_train_s, X_val_s, X_test_s, y_train, y_val, y_test, scaler
+            return X_train_s, X_val_s, X_test_s, y_train.reset_index(drop=True), y_val.reset_index(drop=True), y_test.reset_index(drop=True), scaler
 
         except Exception as e:
             raise CustomException(e, sys)
@@ -135,19 +140,22 @@ class ModelTrainer:
 
             # Save train set
             train_df = X_train.copy()
-            train_df['cardio'] = y_train.values
+            train_df = train_df.reset_index(drop=True)
+            train_df['cardio'] = y_train.reset_index(drop=True).values
             train_df.to_csv("data/train/train.csv", index=False)
             logger.info(f" Saved: data/train/train.csv ({train_df.shape})")
 
             # Save validation set
             val_df = X_val.copy()
-            val_df['cardio'] = y_val.values
+            val_df = val_df.reset_index(drop=True)
+            val_df['cardio'] = y_val.reset_index(drop=True).values
             val_df.to_csv("data/validation/validation.csv", index=False)
             logger.info(f" Saved: data/validation/validation.csv ({val_df.shape})")
 
             # Save test set
             test_df = X_test.copy()
-            test_df['cardio'] = y_test.values
+            test_df = test_df.reset_index(drop=True)
+            test_df['cardio'] = y_test.reset_index(drop=True).values
             test_df.to_csv("data/test/test.csv", index=False)
             logger.info(f" Saved: data/test/test.csv ({test_df.shape})")
 
@@ -157,7 +165,7 @@ class ModelTrainer:
                 "n_features": len(features),
                 "saved_at": datetime.now().isoformat()
             }
-            
+
             Path("models/trained_models").mkdir(parents=True, exist_ok=True)
             with open("models/trained_models/feature_names.json", 'w') as f:
                 json.dump(feature_metadata, f, indent=4)
@@ -186,29 +194,30 @@ class ModelTrainer:
     # -------------------------------------------------------------------
     def _evaluate_model(self, model, X_train, X_val, y_train, y_val) -> Dict:
         try:
+            # Some models may not implement predict_proba in the same way — handle gracefully
             y_train_pred = model.predict(X_train)
-            y_train_proba = model.predict_proba(X_train)[:, 1]
+            y_train_proba = model.predict_proba(X_train)[:, 1] if hasattr(model, "predict_proba") else np.zeros(len(y_train))
 
             y_val_pred = model.predict(X_val)
-            y_val_proba = model.predict_proba(X_val)[:, 1]
+            y_val_proba = model.predict_proba(X_val)[:, 1] if hasattr(model, "predict_proba") else np.zeros(len(y_val))
 
             return {
                 "train_metrics": {
                     "accuracy": accuracy_score(y_train, y_train_pred),
-                    "precision": precision_score(y_train, y_train_pred),
-                    "recall": recall_score(y_train, y_train_pred),
-                    "f1_score": f1_score(y_train, y_train_pred),
-                    "roc_auc": roc_auc_score(y_train, y_train_proba)
+                    "precision": precision_score(y_train, y_train_pred, zero_division=0),
+                    "recall": recall_score(y_train, y_train_pred, zero_division=0),
+                    "f1_score": f1_score(y_train, y_train_pred, zero_division=0),
+                    "roc_auc": roc_auc_score(y_train, y_train_proba) if len(np.unique(y_train_proba)) > 1 else 0.0
                 },
                 "val_metrics": {
                     "accuracy": accuracy_score(y_val, y_val_pred),
-                    "precision": precision_score(y_val, y_val_pred),
-                    "recall": recall_score(y_val, y_val_pred),
-                    "f1_score": f1_score(y_val, y_val_pred),
-                    "roc_auc": roc_auc_score(y_val, y_val_proba)
+                    "precision": precision_score(y_val, y_val_pred, zero_division=0),
+                    "recall": recall_score(y_val, y_val_pred, zero_division=0),
+                    "f1_score": f1_score(y_val, y_val_pred, zero_division=0),
+                    "roc_auc": roc_auc_score(y_val, y_val_proba) if len(np.unique(y_val_proba)) > 1 else 0.0
                 },
                 "confusion_matrix": confusion_matrix(y_val, y_val_pred).tolist(),
-                "report": classification_report(y_val, y_val_pred)
+                "report": classification_report(y_val, y_val_pred, zero_division=0)
             }
 
         except Exception as e:
@@ -217,7 +226,7 @@ class ModelTrainer:
     # -------------------------------------------------------------------
     def _train_logistic_regression(self, X_train, X_val, y_train, y_val):
         try:
-            params = self.config["models"]["logistic_regression"]
+            params = self.config.get("models", {}).get("logistic_regression", {})
 
             with mlflow.start_run(run_name="Logistic_Regression"):
                 model = LogisticRegression(**params)
@@ -239,7 +248,7 @@ class ModelTrainer:
     # -------------------------------------------------------------------
     def _train_random_forest(self, X_train, X_val, y_train, y_val):
         try:
-            params = self.config["models"]["random_forest"]
+            params = self.config.get("models", {}).get("random_forest", {})
 
             with mlflow.start_run(run_name="Random_Forest"):
                 model = RandomForestClassifier(**params)
@@ -267,7 +276,7 @@ class ModelTrainer:
     # -------------------------------------------------------------------
     def _train_gradient_boosting(self, X_train, X_val, y_train, y_val):
         try:
-            params = self.config["models"]["gradient_boosting"]
+            params = self.config.get("models", {}).get("gradient_boosting", {})
 
             with mlflow.start_run(run_name="Gradient_Boosting"):
                 model = GradientBoostingClassifier(**params)
@@ -289,15 +298,20 @@ class ModelTrainer:
     # -------------------------------------------------------------------
     def _train_xgboost(self, X_train, X_val, y_train, y_val):
         try:
-            params = self.config["models"]["xgboost"]
+            params = self.config.get("models", {}).get("xgboost", {})
+
+            # remove deprecated/unsupported args if present (safety)
+            params.pop("use_label_encoder", None)
 
             with mlflow.start_run(run_name="XGBoost"):
                 model = XGBClassifier(**params)
-                model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+                # pass eval_set for early stopping if params include it; otherwise simple fit
+                model.fit(X_train, y_train, eval_set=[(X_val, y_val)] if params.get("early_stopping_rounds") else None, verbose=False)
 
                 results = self._evaluate_model(model, X_train, X_val, y_train, y_val)
                 mlflow.log_params(params)
                 mlflow.log_metrics(results["val_metrics"])
+                # Use mlflow.sklearn logging for sklearn-like estimator compatibility
                 mlflow.sklearn.log_model(model, "model")
 
                 self.models["XGBoost"] = model
@@ -311,14 +325,19 @@ class ModelTrainer:
     # -------------------------------------------------------------------
     def _select_best_model(self):
         try:
-            best_score = 0
+            best_score = -1.0
             best_name = None
 
             for name, result in self.results.items():
-                auc = result["val_metrics"]["roc_auc"]
+                auc = result["val_metrics"].get("roc_auc", 0.0)
+                if auc is None:
+                    auc = 0.0
                 if auc > best_score:
                     best_score = auc
                     best_name = name
+
+            if best_name is None:
+                raise CustomException("No model was trained successfully", sys)
 
             self.best_model_name = best_name
             self.best_model = self.models[best_name]
@@ -336,14 +355,14 @@ class ModelTrainer:
             model = self.best_model
 
             pred = model.predict(X_test)
-            proba = model.predict_proba(X_test)[:, 1]
+            proba = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else np.zeros(len(y_test))
 
             metrics = {
                 "accuracy": accuracy_score(y_test, pred),
-                "precision": precision_score(y_test, pred),
-                "recall": recall_score(y_test, pred),
-                "f1": f1_score(y_test, pred),
-                "roc_auc": roc_auc_score(y_test, proba),
+                "precision": precision_score(y_test, pred, zero_division=0),
+                "recall": recall_score(y_test, pred, zero_division=0),
+                "f1": f1_score(y_test, pred, zero_division=0),
+                "roc_auc": roc_auc_score(y_test, proba) if len(np.unique(proba)) > 1 else 0.0,
                 "confusion_matrix": confusion_matrix(y_test, pred).tolist()
             }
 
@@ -359,11 +378,18 @@ class ModelTrainer:
             Path(model_path).parent.mkdir(parents=True, exist_ok=True)
             Path(scaler_path).parent.mkdir(parents=True, exist_ok=True)
 
-            joblib.dump(self.best_model, model_path)
-            joblib.dump(self.scalers.get("scaler"), scaler_path)
+            if self.best_model is None:
+                raise CustomException("No best model to save", sys)
 
+            joblib.dump(self.best_model, model_path)
             logger.info(f"Best model saved at: {model_path}")
-            logger.info(f"Scaler saved at: {scaler_path}")
+
+            scaler_to_save = self.scalers.get("scaler", None)
+            if scaler_to_save is not None:
+                joblib.dump(scaler_to_save, scaler_path)
+                logger.info(f"Scaler saved at: {scaler_path}")
+            else:
+                logger.warning("No scaler found to save; skipping scaler dump.")
 
         except Exception as e:
             raise CustomException(e, sys)
@@ -403,7 +429,7 @@ def main():
         logger.info(" Feature names saved to: models/trained_models/feature_names.json")
         logger.info(" Models saved to: models/trained_models/")
         logger.info(f"{'='*80}\n")
-        
+
         return trainer
 
     except Exception as e:

@@ -1,47 +1,54 @@
 """
 FastAPI Inference Service for Cardio ML Project
+Updated for Render Deployment + XGBoost Fix + Correct Paths
 
-- Accepts human-friendly inputs (age, height, BP, etc.)
-- Internally recreates all engineered features
-- Uses trained model + scaler
-- Returns:
-    - prediction (0/1)
-    - probability
-    - risk level
-    - human-readable summary
-    - detailed advice
-    - heart health score
-    - cholesterol / glucose / BP interpretation
+- Loads model safely using absolute paths
+- Recreates ALL engineered features exactly like training
+- Handles hypotension safely
+- Returns prediction + risk + detailed interpretation
 """
 
 import pandas as pd
 import joblib
+import sys
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-import sys
-import os
+
+import xgboost  # IMPORTANT: required for joblib to load XGBClassifier
 
 from utils.logger import logger
 from utils.exception import CustomException
 
 
 # =====================================================
-# 1. Load Model and Scaler
+# RESOLVE ROOT DIRECTORY (RENDER SAFE)
+# =====================================================
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+
+MODEL_PATH = ROOT_DIR / "models" / "trained_models" / "best_model.pkl"
+SCALER_PATH = ROOT_DIR / "models" / "trained_models" / "scaler.pkl"
+
+
+# =====================================================
+# LOAD MODEL + SCALER
 # =====================================================
 
 try:
-    MODEL_PATH = "models/trained_models/best_model.pkl"
-    SCALER_PATH = "models/trained_models/scaler.pkl"
-
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
-
-    logger.info("FastAPI: Model and scaler loaded successfully.")
+    logger.info(f"FastAPI: Loaded model from {MODEL_PATH}")
+    logger.info(f"FastAPI: Loaded scaler from {SCALER_PATH}")
 
 except Exception as e:
     logger.error("FastAPI: Failed to load model or scaler.")
     raise CustomException(e, sys)
 
+
+# =====================================================
+# FEATURE COLUMNS — MUST MATCH TRAINING EXACTLY
+# =====================================================
 
 FEATURE_COLUMNS = [
     "age_years", "gender", "height", "weight",
@@ -55,7 +62,7 @@ FEATURE_COLUMNS = [
 
 
 # =====================================================
-# 2. Pydantic Model (User Input)
+# INPUT MODEL
 # =====================================================
 
 class PatientInput(BaseModel):
@@ -73,81 +80,71 @@ class PatientInput(BaseModel):
 
 
 # =====================================================
-# 3. Helper Functions
+# HELPER FUNCTIONS
 # =====================================================
 
-def gender_to_int(gender: str) -> int:
-    gender = gender.strip().lower()
-    return 2 if gender in ["male", "m"] else 1
+def gender_to_int(g: str):
+    g = g.lower().strip()
+    return 2 if g in ["male", "m"] else 1
 
 
-def categorize_bmi(bmi: float) -> int:
-    if bmi < 18.5:
-        return 0
-    elif bmi < 25:
-        return 1
-    elif bmi < 30:
-        return 2
+def categorize_bmi(b):
+    if b < 18.5: return 0
+    if b < 25: return 1
+    if b < 30: return 2
     return 3
 
 
-def categorize_bp(ap_hi: int, ap_lo: int) -> int:
-    if ap_hi < 120 and ap_lo < 80:
-        return 0
-    elif ap_hi < 130 and ap_lo < 80:
-        return 1
-    elif ap_hi < 140 or ap_lo < 90:
-        return 2
-    elif ap_hi < 180 or ap_lo < 120:
-        return 3
+def categorize_bp(sys_bp, dia_bp):
+    if sys_bp < 120 and dia_bp < 80: return 0
+    if sys_bp < 130 and dia_bp < 80: return 1
+    if sys_bp < 140 or dia_bp < 90: return 2
+    if sys_bp < 180 or dia_bp < 120: return 3
     return 4
 
 
-def categorize_age(age_years: int) -> int:
-    if age_years < 40:
-        return 0
-    elif age_years < 50:
-        return 1
-    elif age_years < 60:
-        return 2
+def categorize_age(a):
+    if a < 40: return 0
+    if a < 50: return 1
+    if a < 60: return 2
     return 3
 
 
 # =====================================================
-# Interpretation Helpers
+# INTERPRETATION HELPERS
 # =====================================================
 
-def interpret_bp_category(bp_cat: int) -> str:
+def interpret_bp_category(bp_cat):
     mapping = {
         0: "Normal blood pressure.",
-        1: "Elevated blood pressure. Monitor regularly.",
+        1: "Elevated blood pressure.",
         2: "Hypertension Stage 1.",
         3: "Hypertension Stage 2.",
-        4: "Hypertensive Crisis. Seek immediate medical care."
+        4: "Hypertensive Crisis. Seek immediate care."
     }
     return mapping.get(bp_cat, "Unknown BP status.")
 
 
-def interpret_cholesterol(level: int) -> str:
+def interpret_cholesterol(level):
     mapping = {
         1: "Cholesterol is normal.",
-        2: "Cholesterol is above normal. Reduce fried and fatty foods.",
+        2: "Cholesterol is above normal. Reduce oily foods.",
         3: "Very high cholesterol. Medical review recommended."
     }
     return mapping.get(level, "Unknown cholesterol level.")
 
 
-def interpret_glucose(level: int) -> str:
+def interpret_glucose(level):
     mapping = {
         1: "Glucose is normal.",
         2: "Glucose above normal. Possible prediabetes.",
-        3: "High glucose. Possible diabetes. Medical tests recommended."
+        3: "High glucose. Possible diabetes."
     }
     return mapping.get(level, "Unknown glucose level.")
 
 
 # =====================================================
-# 4. Feature Builder
+# BUILD FEATURE ROW (MATCH TRAINING)
 # =====================================================
 
 def build_feature_row(p: PatientInput) -> pd.DataFrame:
@@ -161,7 +158,6 @@ def build_feature_row(p: PatientInput) -> pd.DataFrame:
         pulse_pressure = p.ap_hi - p.ap_lo
         mean_arterial_pressure = round(p.ap_lo + pulse_pressure / 3, 1)
         bp_category = categorize_bp(p.ap_hi, p.ap_lo)
-
         age_group = categorize_age(age_years)
 
         lifestyle_risk_score = p.smoke + p.alco + (1 - p.active)
@@ -171,8 +167,7 @@ def build_feature_row(p: PatientInput) -> pd.DataFrame:
             (bp_category / 4 * 30)
             + (bmi_cat / 3 * 20)
             + (lifestyle_risk_score / 3 * 25)
-            + (metabolic_risk_score / 6 * 25),
-            1
+            + (metabolic_risk_score / 6 * 25), 1
         )
 
         row = {
@@ -201,76 +196,74 @@ def build_feature_row(p: PatientInput) -> pd.DataFrame:
         return pd.DataFrame([row], columns=FEATURE_COLUMNS)
 
     except Exception as e:
-        logger.error("Failed to build feature row.")
         raise CustomException(e, sys)
 
 
 # =====================================================
-# 5. Advice Generator
+# RISK LEVEL
 # =====================================================
 
-def get_risk_level(prob: float) -> str:
-    if prob < 0.3:
-        return "Low"
-    elif prob < 0.5:
-        return "Moderate"
-    elif prob < 0.7:
-        return "High"
+def get_risk_level(prob):
+    if prob < 0.3: return "Low"
+    if prob < 0.5: return "Moderate"
+    if prob < 0.7: return "High"
     return "Very High"
 
 
-def generate_advice(p: PatientInput, bmi: float, bp_cat: int, prob: float):
-    messages = []
+# =====================================================
+# ADVICE GENERATOR
+# =====================================================
+
+def generate_advice(p, bmi, bp_cat, prob):
+    msgs = []
 
     if bmi >= 25:
-        messages.append("BMI indicates overweight or obesity. Adopt calorie deficit and walk daily.")
+        msgs.append("BMI is high. Begin calorie deficit + daily walking.")
     elif bmi < 18.5:
-        messages.append("BMI is below normal. Improve calorie intake and maintain balanced diet.")
+        msgs.append("BMI low. Increase healthy calorie intake.")
 
     if bp_cat >= 2:
-        messages.append("Blood pressure is high. Reduce salt intake and avoid fried foods.")
+        msgs.append("Blood pressure elevated. Reduce salt and fried foods.")
 
     if p.cholesterol > 1:
-        messages.append("Cholesterol elevated. Reduce oily foods and increase fiber.")
+        msgs.append("Cholesterol elevated. Increase fiber, avoid fried foods.")
 
     if p.gluc > 1:
-        messages.append("Blood sugar elevated. Reduce sugar and refined carbs.")
+        msgs.append("High sugar levels. Reduce sugar + refined carbs.")
 
-    if p.smoke == 1:
-        messages.append("Smoking increases heart risk. Consider quitting.")
+    if p.smoke:
+        msgs.append("Smoking increases cardiac risk. Consider quitting.")
 
-    if p.alco == 1:
-        messages.append("Alcohol increases BP. Reduce intake.")
+    if p.alco:
+        msgs.append("Alcohol raises BP. Reduce intake.")
 
-    if p.active == 0:
-        messages.append("Low activity increases risk. Aim for 30 minutes of walking daily.")
+    if not p.active:
+        msgs.append("Increase activity — 30 minutes walking daily.")
 
-    risk_level = get_risk_level(prob)
+    risk = get_risk_level(prob)
 
-    if risk_level in ["High", "Very High"]:
-        messages.append("Cardiovascular risk is high. Medical consultation recommended.")
-    elif risk_level == "Moderate":
-        messages.append("Moderate risk. Small lifestyle changes can reduce risk.")
+    if risk in ["High", "Very High"]:
+        msgs.append("High cardiovascular risk. Medical consultation recommended.")
+    elif risk == "Moderate":
+        msgs.append("Moderate risk. Lifestyle changes recommended.")
     else:
-        messages.append("Risk is low. Maintain healthy habits.")
-
-    summary = f"Estimated {prob*100:.1f}% chance of cardiovascular disease. Category: {risk_level}."
+        msgs.append("Low risk. Maintain healthy habits.")
 
     return {
-        "risk_level": risk_level,
-        "summary": summary,
-        "recommendations": messages
+        "risk_level": risk,
+        "summary": f"Estimated risk: {prob*100:.1f}% ({risk}).",
+        "recommendations": msgs
     }
 
 
 # =====================================================
-# 6. FastAPI App and Prediction Endpoint (with Hypotension Handling)
+# FASTAPI APP
 # =====================================================
 
 app = FastAPI(
     title="CardioPredict API",
-    description="API for cardiovascular disease prediction",
     version="1.0.0",
+    description="Heart disease prediction API"
 )
 
 
@@ -279,57 +272,41 @@ def root():
     return {"message": "CardioPredict API running", "status": "OK"}
 
 
+# =====================================================
+# PREDICTION ENDPOINT
+# =====================================================
+
 @app.post("/predict")
 def predict(patient: PatientInput):
+
+    # ------------------ Hypotension handling ------------------
+    if patient.ap_hi < 90 or patient.ap_lo < 60:
+        return {
+            "warning": "Hypotension (<90/60). Model not trained for low BP.",
+            "prediction": None,
+            "risk_level": "Not Applicable",
+            "summary": "BP too low for reliable prediction."
+        }
+
     try:
         logger.info(f"Prediction request: {patient.dict()}")
 
-        # ---------------------------------------------------
-        # 🔥 HYPOTENSION CHECK (model not trained for low BP)
-        # ---------------------------------------------------
-        if patient.ap_hi < 90 or patient.ap_lo < 60:
-            return {
-                "warning": "Low blood pressure detected (<90/60). Model was not trained on hypotension cases. Prediction may not be reliable.",
-                "prediction": None,
-                "probability": None,
-                "risk_level": "Not Applicable",
-                "summary": "BP below normal physiological range. Clinical evaluation recommended.",
-                "bp_interpretation": "Hypotension detected. Seek medical evaluation.",
-                "cholesterol_interpretation": interpret_cholesterol(patient.cholesterol),
-                "glucose_interpretation": interpret_glucose(patient.gluc),
-                "risk_factors": {
-                    "bmi": round(patient.weight / ((patient.height / 100) ** 2), 2),
-                    "bmi_category": categorize_bmi(round(patient.weight / ((patient.height / 100) ** 2), 2)),
-                    "blood_pressure_category": "Hypotension",
-                    "lifestyle_score": patient.smoke + patient.alco + (1 - patient.active),
-                    "metabolic_score": patient.cholesterol + patient.gluc,
-                    "combined_risk_score": None
-                },
-                "recommendations": [
-                    "Your blood pressure is significantly low. This may cause dizziness, weakness, or fainting.",
-                    "Increase water intake and avoid sudden standing.",
-                    "Consult a doctor before relying on predictive models."
-                ]
-            }
-
-        # ---------------------------------------------------
-        # 🔥 Normal prediction flow
-        # ---------------------------------------------------
-
-        features_df = build_feature_row(patient)
-        scaled = scaler.transform(features_df)
+        df = build_feature_row(patient)
+        scaled = scaler.transform(df)
 
         pred = int(model.predict(scaled)[0])
-        prob = float(model.predict_proba(scaled)[0, 1])
+        prob = float(model.predict_proba(scaled)[0][1])
 
-        bmi = float(features_df["bmi"].iloc[0])
-        bp_cat = int(features_df["bp_category"].iloc[0])
-        combined_score = float(features_df["combined_risk_score"].iloc[0])
+        bmi = float(df["bmi"].iloc[0])
+        bp_cat = int(df["bp_category"].iloc[0])
+        combined_score = float(df["combined_risk_score"].iloc[0])
 
         advice = generate_advice(patient, bmi, bp_cat, prob)
 
+        # Heart Health Score
         heart_health_score = round(100 - combined_score, 1)
-        heart_health_status = (
+
+        heart_status = (
             "Excellent" if heart_health_score >= 80 else
             "Good" if heart_health_score >= 60 else
             "Moderate" if heart_health_score >= 40 else
@@ -337,7 +314,7 @@ def predict(patient: PatientInput):
             "Very Poor"
         )
 
-        response = {
+        return {
             "prediction": pred,
             "probability": prob,
             "risk_level": advice["risk_level"],
@@ -345,14 +322,7 @@ def predict(patient: PatientInput):
 
             "heart_health": {
                 "score": heart_health_score,
-                "status": heart_health_status,
-                "interpretation": (
-                    "Heart health is excellent." if heart_health_score >= 80 else
-                    "Good heart health but improvements possible." if heart_health_score >= 60 else
-                    "Heart health moderate. Needs attention." if heart_health_score >= 40 else
-                    "Heart health poor. Significant lifestyle changes needed." if heart_health_score >= 20 else
-                    "Very poor heart health. Medical intervention recommended."
-                )
+                "status": heart_status
             },
 
             "bp_interpretation": interpret_bp_category(bp_cat),
@@ -361,18 +331,13 @@ def predict(patient: PatientInput):
 
             "risk_factors": {
                 "bmi": bmi,
-                "bmi_category": int(features_df["bmi_category"].iloc[0]),
+                "bmi_category": int(df["bmi_category"].iloc[0]),
                 "blood_pressure_category": bp_cat,
-                "lifestyle_score": int(features_df["lifestyle_risk_score"].iloc[0]),
-                "metabolic_score": int(features_df["metabolic_risk_score"].iloc[0]),
                 "combined_risk_score": combined_score
             },
 
             "recommendations": advice["recommendations"]
         }
-
-        logger.info("Prediction successful.")
-        return response
 
     except Exception as e:
         logger.error("Prediction failed.")
