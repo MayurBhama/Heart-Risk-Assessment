@@ -19,6 +19,9 @@ def main():
     st.title("CardioPredict – Heart Disease Risk Assessment")
     st.write("Provide your health details for a **personalized cardiovascular risk report**.")
 
+    # ---------------------------------------------------------------
+    # USER INPUT FORM (Improved labels + Yes/No)
+    # ---------------------------------------------------------------
     with st.form("input_form"):
         c1, c2 = st.columns(2)
 
@@ -29,23 +32,71 @@ def main():
             weight = st.number_input("Weight (kg)", 30, 200, 75)
 
         with c2:
-            ap_hi = st.number_input("Systolic BP (ap_hi)", 80, 250, 135)
-            ap_lo = st.number_input("Diastolic BP (ap_lo)", 40, 200, 85)
-            cholesterol = st.selectbox("Cholesterol (1 Normal, 2 High, 3 Very High)", [1, 2, 3])
-            gluc = st.selectbox("Glucose (1 Normal, 2 High, 3 Very High)", [1, 2, 3])
-            smoke = st.selectbox("Do you smoke?", [0, 1])
-            alco = st.selectbox("Do you consume alcohol?", [0, 1])
-            active = st.selectbox("Physically Active?", [0, 1])
+            ap_hi = st.number_input("Systolic Blood Pressure (SBP)", 80, 250, 135)
+            ap_lo = st.number_input("Diastolic Blood Pressure (DBP)", 40, 200, 85)
+
+            cholesterol = st.selectbox(
+                "Cholesterol Level",
+                [
+                    "Normal (< 200 mg/dL)",
+                    "High (200–239 mg/dL)",
+                    "Very High (≥ 240 mg/dL)"
+                ]
+            )
+            gluc = st.selectbox(
+                "Glucose Level (Fasting)",
+                [
+                    "Normal (< 100 mg/dL)",
+                    "High (100–125 mg/dL)",
+                    "Very High (≥ 126 mg/dL)"
+                ]
+            )
+
+            smoke = st.selectbox("Do you smoke?", ["Yes", "No"])
+            alco = st.selectbox("Do you consume alcohol?", ["Yes", "No"])
+            active = st.selectbox("Are you physically active?", ["Yes", "No"])
 
         submitted = st.form_submit_button("Predict Heart Risk")
 
+    # ---------------------------------------------------------------
+    # CALL API
+    # ---------------------------------------------------------------
     if submitted:
 
+        # Convert Yes/No → Numeric
+        smoke_val = 1 if smoke == "Yes" else 0
+        alco_val = 1 if alco == "Yes" else 0
+        active_val = 1 if active == "Yes" else 0
+
+        # Proper Mapping for Cholesterol
+        chol_map = {
+            "Normal (< 200 mg/dL)": 1,
+            "High (200–239 mg/dL)": 2,
+            "Very High (≥ 240 mg/dL)": 3
+        }
+        chol_val = chol_map[cholesterol]
+
+        # Proper Mapping for Glucose
+        gluc_map = {
+            "Normal (< 100 mg/dL)": 1,
+            "High (100–125 mg/dL)": 2,
+            "Very High (≥ 126 mg/dL)": 3
+        }
+        gluc_val = gluc_map[gluc]
+
+        # Build JSON Payload
         payload = {
-            "age": age, "gender": gender, "height": height, "weight": weight,
-            "ap_hi": ap_hi, "ap_lo": ap_lo,
-            "cholesterol": cholesterol, "gluc": gluc,
-            "smoke": smoke, "alco": alco, "active": active
+            "age": age,
+            "gender": gender,
+            "height": height,
+            "weight": weight,
+            "ap_hi": ap_hi,
+            "ap_lo": ap_lo,
+            "cholesterol": chol_val,
+            "gluc": gluc_val,
+            "smoke": smoke_val,
+            "alco": alco_val,
+            "active": active_val
         }
 
         output = send_request(payload)
@@ -54,7 +105,9 @@ def main():
             st.error(f"Backend Error: {output['error']}")
             return
 
-        # Special case
+        # ---------------------------------------------------------------
+        # SPECIAL CASE (Hypotension, invalid values)
+        # ---------------------------------------------------------------
         if output.get("warning") is not None:
             st.error(output["warning"])
             st.info(output["summary"])
@@ -65,7 +118,9 @@ def main():
                 st.markdown(f"- {r}")
             st.stop()
 
-        # Summary
+        # ---------------------------------------------------------------
+        # PREDICTION SUMMARY
+        # ---------------------------------------------------------------
         st.subheader("Prediction Summary")
         colA, colB = st.columns(2)
 
@@ -80,7 +135,9 @@ def main():
             st.metric("Blood Pressure Category", rf["blood_pressure_category"])
             st.metric("Combined Risk Score", rf["combined_risk_score"])
 
-        # Heart health
+        # ---------------------------------------------------------------
+        # HEART HEALTH
+        # ---------------------------------------------------------------
         if "heart_health" in output:
             st.write("---")
             st.subheader("Heart Health Score")
@@ -88,21 +145,25 @@ def main():
             st.metric("Heart Score (0–100)", heart["score"])
             st.info(f"Status: {heart['status']}")
 
-        # Summary
+        # ---------------------------------------------------------------
+        # SUMMARY TEXT
+        # ---------------------------------------------------------------
         st.write("---")
         st.subheader("Detailed Summary")
         st.info(output["summary"])
 
-        # Interpretations
+        # ---------------------------------------------------------------
+        # CLINICAL INTERPRETATIONS
+        # ---------------------------------------------------------------
         st.write("---")
         st.subheader("Clinical Interpretations")
         st.write(f"**Blood Pressure:** {output['bp_interpretation']}")
         st.write(f"**Cholesterol:** {output['cholesterol_interpretation']}")
         st.write(f"**Glucose:** {output['glucose_interpretation']}")
 
-        # --------------------------
-        # FIXED: Clean Key Risk Markers UI
-        # --------------------------
+        # ---------------------------------------------------------------
+        # KEY RISK MARKERS
+        # ---------------------------------------------------------------
         st.write("---")
         st.subheader("Key Risk Markers")
 
@@ -110,14 +171,14 @@ def main():
 
         with c1:
             st.metric("BMI", rf["bmi"])
-
         with c2:
             st.metric("BP Category", rf["blood_pressure_category"])
-
         with c3:
             st.metric("Combined Score", rf["combined_risk_score"])
 
-        # Recommendations
+        # ---------------------------------------------------------------
+        # RECOMMENDATIONS
+        # ---------------------------------------------------------------
         st.write("---")
         st.subheader("Personalized Recommendations")
         for r in output["recommendations"]:
