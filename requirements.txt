@@ -15,3 +15,11 @@ streamlit
 
 python-dotenv
 pyyaml
+pydantic 
+joblib 
+python-multipart
+gunicorn
+uvloop
+httptools
+PyYAML
+requests
