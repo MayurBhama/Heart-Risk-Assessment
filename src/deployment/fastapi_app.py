@@ -30,9 +30,8 @@ from utils.exception import CustomException
 # =====================================================
 
 try:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    MODEL_PATH = os.path.join(BASE_DIR, "model_artifacts/best_model.pkl")
-    SCALER_PATH = os.path.join(BASE_DIR, "model_artifacts/scaler.pkl")
+    MODEL_PATH = "models/trained_models/best_model.pkl"
+    SCALER_PATH = "models/trained_models/scaler.pkl"
 
     model = joblib.load(MODEL_PATH)
     scaler = joblib.load(SCALER_PATH)
