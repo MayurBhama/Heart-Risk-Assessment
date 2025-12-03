@@ -3,8 +3,8 @@ import requests
 import sys
 import os
 
-# TEMP LOCAL API (change to Railway URL after deployment)
-API_URL = "http://127.0.0.1:8000/predict"
+
+API_URL = "https://cardiopredict-heart-disease-risk.onrender.com/predict"
 
 
 def send_request(payload):
