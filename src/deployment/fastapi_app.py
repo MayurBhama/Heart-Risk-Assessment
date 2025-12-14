@@ -96,11 +96,21 @@ def categorize_bmi(b):
 
 
 def categorize_bp(sys_bp, dia_bp):
-    if sys_bp < 120 and dia_bp < 80: return 0
-    if sys_bp < 130 and dia_bp < 80: return 1
-    if sys_bp < 140 or dia_bp < 90: return 2
-    if sys_bp < 180 or dia_bp < 120: return 3
-    return 4
+    # NHS Blood Pressure Categories
+    # Normal: 90/60 to 120/80
+    # High Normal: 120/80 to 140/90
+    # Stage 1 (Hypertension): 140/90 to 160/100
+    # Stage 2: 160/100 to 180/120
+    # Stage 3 (Severe/Crisis): >180 or >120
+    if sys_bp <= 120 and dia_bp <= 80: 
+        return 0  # Normal
+    if sys_bp < 140 and dia_bp < 90: 
+        return 1  # High Normal
+    if sys_bp < 160 and dia_bp < 100: 
+        return 2  # Stage 1 Hypertension
+    if sys_bp < 180 and dia_bp < 120: 
+        return 3  # Stage 2 Hypertension
+    return 4  # Stage 3 Severe Hypertension
 
 
 def categorize_age(a):
@@ -115,12 +125,13 @@ def categorize_age(a):
 # =====================================================
 
 def interpret_bp_category(bp_cat):
+    # NHS Blood Pressure terminology
     mapping = {
         0: "Normal blood pressure.",
-        1: "Elevated blood pressure.",
-        2: "Hypertension Stage 1.",
-        3: "Hypertension Stage 2.",
-        4: "Hypertensive Crisis. Seek immediate care."
+        1: "High normal blood pressure.",
+        2: "High blood pressure (Stage 1).",
+        3: "High blood pressure (Stage 2).",
+        4: "Severe hypertension. Seek immediate care."
     }
     return mapping.get(bp_cat, "Unknown BP status.")
 
@@ -223,7 +234,7 @@ def generate_advice(p, bmi, bp_cat, prob):
         msgs.append("BMI low. Increase healthy calorie intake.")
 
     if bp_cat >= 2:
-        msgs.append("Blood pressure elevated. Reduce salt and fried foods.")
+        msgs.append("High blood pressure detected. Reduce salt and fried foods.")
 
     if p.cholesterol > 1:
         msgs.append("Cholesterol elevated. Increase fiber, avoid fried foods.")
