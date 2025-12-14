@@ -583,31 +583,6 @@ def main():
         
         st.session_state["base_payload"] = payload
         
-        # HYPOTENSION CHECK - Data not trained on low BP
-        if ap_hi < 90 or ap_lo < 60:
-            # Add anchor first, then warning
-            st.markdown('<div id="hypotension-anchor"></div>', unsafe_allow_html=True)
-            st.warning("⚠️ **Low Blood Pressure Detected (Hypotension)**\n\nThis model was trained on data with blood pressure readings in the normal-to-high range. Predictions for hypotensive readings (systolic < 90 or diastolic < 60) may not be reliable. Please consult a healthcare provider for low blood pressure concerns.")
-            
-            # Auto-scroll to the warning
-            import time
-            import streamlit.components.v1 as components
-            components.html(
-                f"""
-                <script>
-                    // Unique: {time.time()}
-                    setTimeout(function() {{
-                        const anchor = parent.document.getElementById('hypotension-anchor');
-                        if (anchor) {{
-                            anchor.scrollIntoView({{behavior: 'smooth', block: 'start'}});
-                        }}
-                    }}, 300);
-                </script>
-                """,
-                height=0
-            )
-            return
-        
         with st.spinner("Analyzing your cardiovascular risk profile..."):
             output = send_request(payload)
         
@@ -628,25 +603,6 @@ def main():
         risk_level = output["risk_level"]
         
         st.write("---")
-        
-        # Auto-scroll anchor and script
-        import time
-        st.markdown('<div id="results-anchor"></div>', unsafe_allow_html=True)
-        import streamlit.components.v1 as components
-        components.html(
-            f"""
-            <script>
-                // Unique timestamp: {time.time()}
-                setTimeout(function() {{
-                    const anchor = parent.document.getElementById('results-anchor');
-                    if (anchor) {{
-                        anchor.scrollIntoView({{behavior: 'smooth', block: 'start'}});
-                    }}
-                }}, 500);
-            </script>
-            """,
-            height=0
-        )
         
         # JUMP NAVIGATION
         st.markdown("""
