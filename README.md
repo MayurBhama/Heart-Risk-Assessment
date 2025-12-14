@@ -847,12 +847,3 @@ curl -X POST "http://localhost:8000/predict" \
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Acknowledgments
-
-- **Kaggle** for the Cardiovascular Disease dataset
-- **NHS** for blood pressure classification guidelines
-- **XGBoost** team for the powerful gradient boosting library
-- **Streamlit** team for the intuitive web framework
