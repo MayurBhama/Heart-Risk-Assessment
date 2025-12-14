@@ -145,11 +145,12 @@ def get_risk_contributors(bmi, bp_cat, chol, gluc, smoke, alco, active, age):
     if age >= 55:
         contributors.append(("MEDIUM", "Age", f"{age} years", "Non-modifiable"))
     
-    # Blood Pressure - Treatable
+    # Blood Pressure - Treatable (NHS: 0=Normal, 1=High Normal, 2+=Hypertension)
     if bp_cat >= 3:
-        contributors.append(("HIGH", "Blood Pressure", f"Stage {bp_cat-1} Hypertension", "Treatable"))
+        contributors.append(("HIGH", "Blood Pressure", f"High blood pressure (Stage {bp_cat-1})", "Treatable"))
     elif bp_cat == 2:
-        contributors.append(("MEDIUM", "Blood Pressure", "Elevated", "Treatable"))
+        contributors.append(("MEDIUM", "Blood Pressure", "High blood pressure (Stage 1)", "Treatable"))
+    # bp_cat 0-1 (Normal/High Normal) - no risk contributor shown
     
     # Cholesterol - Modifiable
     if chol == 3:
@@ -203,7 +204,8 @@ def get_prioritized_recommendations(bmi, bp_cat, chol, gluc, smoke, alco, active
         high_priority.append(("Consider a smoking cessation program", "Goal: Smoke-free within 3-6 months"))
     
     # Medium Priority with targets
-    if bp_cat == 2:
+    # BP recommendations only for actual hypertension (bp_cat >= 2)
+    if bp_cat >= 2:
         medium_priority.append(("Monitor blood pressure and reduce sodium intake", "Target: < 2g sodium/day"))
     if bmi >= 25:
         target_loss = max(3, int((bmi - 24) * 1.5))
