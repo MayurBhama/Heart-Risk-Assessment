@@ -595,9 +595,9 @@ def main():
             return
         
         bmi = weight / ((height / 100) ** 2)
-        bp_cat = output.get("risk_factors", {}).get("bp_category", 2)
+        bp_cat = output.get("risk_factors", {}).get("blood_pressure_category", 0)
         if isinstance(bp_cat, str):
-            bp_cat = 2
+            bp_cat = 0
         
         probability = output["probability"]
         risk_level = output["risk_level"]
