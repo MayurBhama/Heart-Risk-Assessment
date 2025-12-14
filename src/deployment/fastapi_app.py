@@ -136,9 +136,9 @@ def interpret_cholesterol(level):
 
 def interpret_glucose(level):
     mapping = {
-        1: "Glucose is normal.",
-        2: "Glucose above normal. Possible prediabetes.",
-        3: "High glucose. Possible diabetes."
+        1: "Glucose levels within normal range.",
+        2: "Glucose above normal. Possible impaired glucose regulation.",
+        3: "Elevated glucose levels. Consider glucose tolerance testing."
     }
     return mapping.get(level, "Unknown glucose level.")
 
