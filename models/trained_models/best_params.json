@@ -1,0 +1,25 @@
+{
+    "model_name": "XGBClassifier",
+    "params": {
+        "n_estimators": 200,
+        "max_depth": 5,
+        "learning_rate": 0.05,
+        "min_child_weight": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "gamma": 0,
+        "reg_alpha": 0.1,
+        "reg_lambda": 1,
+        "random_state": 42,
+        "eval_metric": "logloss",
+        "n_jobs": -1
+    },
+    "cv_score": NaN,
+    "test_metrics": {
+        "accuracy": 0.7357854630715123,
+        "precision": 0.7557648587203638,
+        "recall": 0.6888691533451746,
+        "f1_score": 0.7207681585875794,
+        "roc_auc": 0.8009837003079225
+    }
+}
