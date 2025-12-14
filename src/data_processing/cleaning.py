@@ -1,20 +1,24 @@
 """
 Data Cleaning Module
+
 This module performs comprehensive data cleaning including:
-- Outlier detection and handling
+- Outlier detection and handling using IQR method
 - Missing value imputation
 - Data type corrections
 - Invalid value handling
+- Blood pressure anomaly detection
+
+Author: Heart-Risk-Assessment Team
 """
 
 import pandas as pd
 import numpy as np
 import yaml
 import sys
-from scipy import stats
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Any, Optional
 import warnings
-warnings.filterwarnings('ignore')
+
+warnings.filterwarnings("ignore")
 
 from utils.logger import logger
 from utils.exception import CustomException
@@ -22,19 +26,29 @@ from utils.exception import CustomException
 
 class DataCleaner:
     """
-    Comprehensive data cleaning class for cardiovascular dataset
+    Comprehensive data cleaning class for cardiovascular dataset.
+    
+    Provides methods for outlier removal, duplicate handling,
+    data type corrections, and blood pressure anomaly detection.
+    
+    Attributes:
+        config: Configuration dictionary loaded from YAML.
+        cleaning_report: Dictionary tracking all cleaning operations.
     """
 
-    def __init__(self, config_path: str = "configs/data_config.yaml"):
+    def __init__(self, config_path: str = "configs/data_config.yaml") -> None:
         """
-        Initialize DataCleaner
+        Initialize DataCleaner.
 
         Args:
-            config_path: Path to data configuration file
+            config_path: Path to data configuration file.
+
+        Raises:
+            CustomException: If initialization fails.
         """
         try:
-            self.config = self._load_config(config_path)
-            self.cleaning_report = {
+            self.config: Dict[str, Any] = self._load_config(config_path)
+            self.cleaning_report: Dict[str, Any] = {
                 "initial_shape": None,
                 "final_shape": None,
                 "removed_rows": 0,
@@ -46,8 +60,19 @@ class DataCleaner:
         except Exception as e:
             raise CustomException(e, sys)
 
-    def _load_config(self, config_path: str) -> Dict:
-        """Load configuration from YAML file"""
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        """
+        Load configuration from YAML file.
+
+        Args:
+            config_path: Path to configuration file.
+
+        Returns:
+            Configuration dictionary.
+
+        Raises:
+            CustomException: If loading fails.
+        """
         try:
             with open(config_path, "r") as f:
                 return yaml.safe_load(f)
@@ -57,7 +82,25 @@ class DataCleaner:
 
     def clean_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Main cleaning pipeline
+        Execute the main cleaning pipeline.
+
+        Applies all cleaning steps in sequence:
+        1. Remove duplicates
+        2. Convert age to years
+        3. Handle invalid categorical values
+        4. Remove outliers
+        5. Handle blood pressure anomalies
+        6. Handle missing values
+        7. Ensure correct data types
+
+        Args:
+            df: Input DataFrame to clean.
+
+        Returns:
+            Cleaned DataFrame.
+
+        Raises:
+            CustomException: If any cleaning step fails.
         """
         try:
             logger.info("Starting data cleaning pipeline...")
@@ -89,7 +132,18 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _remove_duplicates(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove duplicate rows"""
+        """
+        Remove duplicate rows from DataFrame.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with duplicates removed.
+
+        Raises:
+            CustomException: If removal fails.
+        """
         try:
             initial_len = len(df)
             df_clean = df.drop_duplicates()
@@ -101,7 +155,18 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _convert_age_to_years(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Convert age from days to years"""
+        """
+        Convert age from days to years.
+
+        Args:
+            df: Input DataFrame with 'age' column in days.
+
+        Returns:
+            DataFrame with new 'age_years' column.
+
+        Raises:
+            CustomException: If conversion fails.
+        """
         try:
             df["age_years"] = (df["age"] / 365.25).round().astype(int)
             logger.info("Converted age from days to years")
@@ -111,7 +176,18 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _handle_invalid_categorical(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove rows with invalid categorical values"""
+        """
+        Remove rows with invalid categorical values.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with invalid categorical values removed.
+
+        Raises:
+            CustomException: If handling fails.
+        """
         try:
             for col, valid_values in self.config["categorical_values"].items():
                 if col in df.columns:
@@ -128,55 +204,39 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _remove_outliers(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove outliers based on valid ranges"""
+        """
+        Remove outliers based on configured valid ranges.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with outliers removed.
+
+        Raises:
+            CustomException: If removal fails.
+        """
         try:
             valid_ranges = self.config["valid_ranges"]
             initial_len = len(df)
 
-            # Age
-            if "age_years" in df.columns:
-                low, high = valid_ranges["age_years"]
-                mask = (df["age_years"] >= low) & (df["age_years"] <= high)
-                removed = len(df) - mask.sum()
-                df = df[mask]
-                if removed > 0:
-                    self.cleaning_report["outliers_removed"]["age"] = removed
+            # Define columns and their config keys
+            columns_to_check = [
+                ("age_years", "age_years", "age"),
+                ("height", "height", "height"),
+                ("weight", "weight", "weight"),
+                ("ap_hi", "ap_hi", "systolic_bp"),
+                ("ap_lo", "ap_lo", "diastolic_bp"),
+            ]
 
-            # Height
-            if "height" in df.columns:
-                low, high = valid_ranges["height"]
-                mask = (df["height"] >= low) & (df["height"] <= high)
-                removed = len(df) - mask.sum()
-                df = df[mask]
-                if removed > 0:
-                    self.cleaning_report["outliers_removed"]["height"] = removed
-
-            # Weight
-            if "weight" in df.columns:
-                low, high = valid_ranges["weight"]
-                mask = (df["weight"] >= low) & (df["weight"] <= high)
-                removed = len(df) - mask.sum()
-                df = df[mask]
-                if removed > 0:
-                    self.cleaning_report["outliers_removed"]["weight"] = removed
-
-            # Systolic BP
-            if "ap_hi" in df.columns:
-                low, high = valid_ranges["ap_hi"]
-                mask = (df["ap_hi"] >= low) & (df["ap_hi"] <= high)
-                removed = len(df) - mask.sum()
-                df = df[mask]
-                if removed > 0:
-                    self.cleaning_report["outliers_removed"]["systolic_bp"] = removed
-
-            # Diastolic BP
-            if "ap_lo" in df.columns:
-                low, high = valid_ranges["ap_lo"]
-                mask = (df["ap_lo"] >= low) & (df["ap_lo"] <= high)
-                removed = len(df) - mask.sum()
-                df = df[mask]
-                if removed > 0:
-                    self.cleaning_report["outliers_removed"]["diastolic_bp"] = removed
+            for col, range_key, report_key in columns_to_check:
+                if col in df.columns and range_key in valid_ranges:
+                    low, high = valid_ranges[range_key]
+                    mask = (df[col] >= low) & (df[col] <= high)
+                    removed = len(df) - mask.sum()
+                    df = df[mask]
+                    if removed > 0:
+                        self.cleaning_report["outliers_removed"][report_key] = removed
 
             total_removed = initial_len - len(df)
             logger.info(f"Total outliers removed: {total_removed}")
@@ -187,7 +247,18 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _handle_blood_pressure_anomalies(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Remove cases where diastolic >= systolic"""
+        """
+        Remove cases where diastolic BP >= systolic BP.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with BP anomalies removed.
+
+        Raises:
+            CustomException: If handling fails.
+        """
         try:
             if "ap_hi" in df.columns and "ap_lo" in df.columns:
                 initial_len = len(df)
@@ -201,7 +272,18 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Drop rows with missing values"""
+        """
+        Drop rows with missing values.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with missing values removed.
+
+        Raises:
+            CustomException: If handling fails.
+        """
         try:
             missing_count = df.isnull().sum().sum()
             if missing_count > 0:
@@ -215,22 +297,23 @@ class DataCleaner:
             raise CustomException(e, sys)
 
     def _ensure_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Ensure data types for numeric columns"""
+        """
+        Ensure correct data types for all columns.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            DataFrame with corrected data types.
+
+        Raises:
+            CustomException: If type conversion fails.
+        """
         try:
             int_columns = [
-                "id",
-                "age",
-                "gender",
-                "height",
-                "ap_hi",
-                "ap_lo",
-                "cholesterol",
-                "gluc",
-                "smoke",
-                "alco",
-                "active",
-                "cardio",
-                "age_years",
+                "id", "age", "gender", "height", "ap_hi", "ap_lo",
+                "cholesterol", "gluc", "smoke", "alco", "active",
+                "cardio", "age_years",
             ]
 
             for col in int_columns:
@@ -246,22 +329,43 @@ class DataCleaner:
         except Exception as e:
             raise CustomException(e, sys)
 
-    def get_cleaning_report(self) -> Dict:
-        """Return cleaning summary report"""
+    def get_cleaning_report(self) -> Dict[str, Any]:
+        """
+        Get the cleaning summary report.
+
+        Returns:
+            Dictionary containing cleaning statistics.
+        """
         return self.cleaning_report
 
-    def get_data_statistics(self, df: pd.DataFrame) -> Dict:
-        """Generate summary statistics"""
+    def get_data_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Generate summary statistics for the DataFrame.
+
+        Args:
+            df: Input DataFrame.
+
+        Returns:
+            Dictionary containing numeric stats, categorical distributions,
+            and target/gender distributions.
+
+        Raises:
+            CustomException: If statistics generation fails.
+        """
         try:
-            stats_dict = {
+            stats_dict: Dict[str, Any] = {
                 "numeric_stats": df.describe().to_dict(),
                 "categorical_distribution": {},
-                "target_distribution": df["cardio"].value_counts().to_dict()
-                if "cardio" in df.columns
-                else None,
-                "gender_distribution": df["gender"].value_counts().to_dict()
-                if "gender" in df.columns
-                else None,
+                "target_distribution": (
+                    df["cardio"].value_counts().to_dict()
+                    if "cardio" in df.columns
+                    else None
+                ),
+                "gender_distribution": (
+                    df["gender"].value_counts().to_dict()
+                    if "gender" in df.columns
+                    else None
+                ),
             }
 
             categorical_cols = ["cholesterol", "gluc", "smoke", "alco", "active"]
@@ -278,8 +382,16 @@ class DataCleaner:
             raise CustomException(e, sys)
 
 
-def main():
-    """Run cleaning standalone for testing"""
+def main() -> pd.DataFrame:
+    """
+    Run cleaning pipeline standalone for testing.
+
+    Returns:
+        Cleaned DataFrame.
+
+    Raises:
+        CustomException: If pipeline fails.
+    """
     try:
         df = pd.read_csv("data/raw/cardio_train.csv", sep=";")
         cleaner = DataCleaner()
