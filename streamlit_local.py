@@ -1,14 +1,15 @@
 """
 CardioPredict - Enhanced Heart Disease Risk Assessment
-Production Streamlit UI with Trust, Explainability, and Actionable Insights
+Industry-Grade Streamlit UI with Trust, Explainability, and Actionable Insights
 """
 
 import streamlit as st
 import requests
 from datetime import datetime
+import io
 
-# Production API URL
-API_URL = "https://cardiopredict-heart-disease-risk.onrender.com/predict"
+# Configuration
+API_URL = "http://127.0.0.1:8000/predict"
 
 st.set_page_config(
     page_title="CardioPredict - Heart Risk Assessment",
@@ -16,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom CSS
+# Custom CSS for clean professional look
 st.markdown("""
 <style>
     .main-header {font-size: 2.2rem; font-weight: 700; margin-bottom: 0.5rem;}
@@ -26,6 +27,9 @@ st.markdown("""
     .priority-high {border-left: 4px solid #ff4b4b; padding-left: 1rem; margin: 0.5rem 0;}
     .priority-medium {border-left: 4px solid #ffa726; padding-left: 1rem; margin: 0.5rem 0;}
     .priority-low {border-left: 4px solid #66bb6a; padding-left: 1rem; margin: 0.5rem 0;}
+    .contributor-high {color: #ff4b4b;}
+    .contributor-medium {color: #ffa726;}
+    .contributor-low {color: #ffeb3b;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -38,44 +42,55 @@ def send_request(payload):
             return {"error": response.text}
         return response.json()
     except requests.exceptions.ConnectionError:
-        return {"error": "Cannot connect to API server. Please try again later."}
+        return {"error": "Cannot connect to API server. Make sure FastAPI is running on port 8000."}
     except Exception as e:
         return {"error": str(e)}
 
 
 def get_risk_contributors(bmi, bp_cat, chol, gluc, smoke, alco, active):
-    """Analyze and rank risk contributors."""
+    """
+    Analyze and rank risk contributors based on input values.
+    Returns list of (level, factor, description) tuples.
+    """
     contributors = []
     
+    # Blood Pressure
     if bp_cat >= 3:
         contributors.append(("HIGH", "Blood Pressure", f"Stage {bp_cat-1} Hypertension"))
     elif bp_cat == 2:
         contributors.append(("MEDIUM", "Blood Pressure", "Elevated blood pressure"))
     
+    # Cholesterol
     if chol == 3:
         contributors.append(("HIGH", "Cholesterol", "Very high cholesterol levels"))
     elif chol == 2:
         contributors.append(("MEDIUM", "Cholesterol", "Above normal cholesterol"))
     
+    # BMI
     if bmi >= 30:
         contributors.append(("HIGH", "BMI", f"Obese (BMI: {bmi:.1f})"))
     elif bmi >= 25:
         contributors.append(("MEDIUM", "BMI", f"Overweight (BMI: {bmi:.1f})"))
     
+    # Glucose
     if gluc == 3:
         contributors.append(("HIGH", "Glucose", "Very high glucose levels"))
     elif gluc == 2:
         contributors.append(("MEDIUM", "Glucose", "Above normal glucose"))
     
+    # Smoking
     if smoke == 1:
         contributors.append(("HIGH", "Smoking", "Active smoker"))
     
+    # Alcohol
     if alco == 1:
         contributors.append(("MEDIUM", "Alcohol", "Regular alcohol consumption"))
     
+    # Physical Activity
     if active == 0:
         contributors.append(("LOW", "Physical Activity", "Sedentary lifestyle"))
     
+    # Sort by severity
     severity_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     contributors.sort(key=lambda x: severity_order[x[0]])
     
@@ -83,11 +98,12 @@ def get_risk_contributors(bmi, bp_cat, chol, gluc, smoke, alco, active):
 
 
 def get_prioritized_recommendations(contributors, bmi, bp_cat, chol, gluc, smoke, alco, active):
-    """Generate prioritized recommendations."""
+    """Generate prioritized recommendations based on risk contributors."""
     high_priority = []
     medium_priority = []
     long_term = []
     
+    # High Priority
     if bp_cat >= 3:
         high_priority.append("Consult a physician immediately for hypertension management")
     if chol == 3:
@@ -95,6 +111,7 @@ def get_prioritized_recommendations(contributors, bmi, bp_cat, chol, gluc, smoke
     if smoke == 1:
         high_priority.append("Begin a smoking cessation program - this is the fastest way to reduce risk")
     
+    # Medium Priority
     if bp_cat == 2:
         medium_priority.append("Monitor blood pressure daily and reduce sodium intake")
     if bmi >= 25:
@@ -106,6 +123,7 @@ def get_prioritized_recommendations(contributors, bmi, bp_cat, chol, gluc, smoke
     if alco == 1:
         medium_priority.append("Limit alcohol to 1-2 drinks per week maximum")
     
+    # Long Term
     if active == 0:
         long_term.append("Begin with 30 minutes of walking daily, gradually increase intensity")
     else:
@@ -113,6 +131,7 @@ def get_prioritized_recommendations(contributors, bmi, bp_cat, chol, gluc, smoke
     long_term.append("Schedule regular health check-ups every 6 months")
     long_term.append("Monitor blood pressure and blood glucose at home weekly")
     
+    # Ensure at least one item in each category
     if not high_priority:
         high_priority.append("Continue current healthy practices and maintain regular check-ups")
     if not medium_priority:
@@ -123,6 +142,7 @@ def get_prioritized_recommendations(contributors, bmi, bp_cat, chol, gluc, smoke
 
 def get_age_percentile(age, probability):
     """Estimate risk percentile compared to age group."""
+    # Simplified estimation based on age and probability
     base_percentile = probability * 100
     
     if age < 40:
@@ -164,8 +184,26 @@ def get_risk_context(risk_level, probability):
     return contexts.get(risk_level, contexts["Moderate"])
 
 
-def generate_report(inputs, output, contributors, recommendations):
-    """Generate a text report."""
+def calculate_what_if(base_payload, smoke_change=None, active_change=None, bp_reduction=None):
+    """Calculate risk with hypothetical changes."""
+    modified = base_payload.copy()
+    
+    if smoke_change is not None:
+        modified["smoke"] = smoke_change
+    if active_change is not None:
+        modified["active"] = active_change
+    if bp_reduction is not None:
+        modified["ap_hi"] = max(90, base_payload["ap_hi"] - bp_reduction)
+        modified["ap_lo"] = max(60, base_payload["ap_lo"] - int(bp_reduction * 0.6))
+    
+    result = send_request(modified)
+    if "error" not in result:
+        return result.get("probability", 0) * 100
+    return None
+
+
+def generate_pdf_report(inputs, output, contributors, recommendations):
+    """Generate a text-based report (simplified PDF alternative)."""
     report = []
     report.append("=" * 60)
     report.append("CARDIOPREDICT - HEART DISEASE RISK ASSESSMENT REPORT")
@@ -213,15 +251,18 @@ def generate_report(inputs, output, contributors, recommendations):
     report.append("DISCLAIMER")
     report.append("This assessment is for educational purposes only.")
     report.append("It is not a substitute for professional medical advice.")
+    report.append("Please consult a healthcare provider for diagnosis.")
     report.append("=" * 60)
     
     return "\n".join(report)
 
 
 def main():
+    # Header
     st.markdown('<p class="main-header">CardioPredict - Heart Disease Risk Assessment</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">AI-powered cardiovascular risk analysis with personalized recommendations</p>', unsafe_allow_html=True)
     
+    # Input Form
     with st.form("input_form"):
         col1, col2 = st.columns(2)
         
@@ -257,6 +298,7 @@ def main():
         
         submitted = st.form_submit_button("Analyze Heart Risk", use_container_width=True)
     
+    # Process Submission
     if submitted:
         chol_map = {"Normal (< 200 mg/dL)": 1, "Above Normal (200-239 mg/dL)": 2, "High (>= 240 mg/dL)": 3}
         gluc_map = {"Normal (< 100 mg/dL)": 1, "Above Normal (100-125 mg/dL)": 2, "High (>= 126 mg/dL)": 3}
@@ -275,6 +317,9 @@ def main():
             "active": 1 if active == "Yes" else 0,
         }
         
+        # Store in session for What-If analysis
+        st.session_state["base_payload"] = payload
+        
         with st.spinner("Analyzing your cardiovascular risk..."):
             output = send_request(payload)
         
@@ -286,6 +331,7 @@ def main():
             st.warning(output["warning"])
             return
         
+        # Calculate derived values
         bmi = weight / ((height / 100) ** 2)
         bp_cat = output.get("risk_factors", {}).get("bp_category", 2)
         if isinstance(bp_cat, str):
@@ -296,7 +342,7 @@ def main():
         
         st.write("---")
         
-        # PREDICTION RESULTS
+        # ===== SECTION 1: PREDICTION RESULTS =====
         st.subheader("Prediction Results")
         
         c1, c2, c3 = st.columns(3)
@@ -304,6 +350,7 @@ def main():
             pred_text = "Elevated Risk Detected" if output["prediction"] == 1 else "Lower Risk Profile"
             st.metric("Assessment", pred_text)
         with c2:
+            # Improved probability presentation
             prob_pct = probability * 100
             if prob_pct >= 70:
                 prob_text = f"{prob_pct:.1f}% (Significantly Elevated)"
@@ -315,7 +362,7 @@ def main():
         with c3:
             st.metric("Risk Classification", risk_level)
         
-        # RISK CONTEXT
+        # ===== SECTION 2: RISK CONTEXT (CRITICAL) =====
         context = get_risk_context(risk_level, probability)
         
         st.markdown("##### Understanding Your Risk Level")
@@ -329,7 +376,7 @@ def main():
 **Important Note:** {context['note']}
         """)
         
-        # AGE COMPARISON
+        # ===== SECTION 3: AGE-BASED COMPARISON =====
         percentile = get_age_percentile(age, probability)
         
         st.markdown("##### Compared to Your Age Group")
@@ -342,7 +389,7 @@ def main():
         
         st.write("---")
         
-        # RISK CONTRIBUTORS
+        # ===== SECTION 4: TOP RISK CONTRIBUTORS =====
         st.subheader("Top Contributors to Your Risk")
         
         contributors = get_risk_contributors(
@@ -363,7 +410,7 @@ def main():
         
         st.write("---")
         
-        # RECOMMENDATIONS
+        # ===== SECTION 5: PRIORITIZED RECOMMENDATIONS =====
         st.subheader("Personalized Action Plan")
         
         high_p, med_p, long_p = get_prioritized_recommendations(
@@ -385,7 +432,36 @@ def main():
         
         st.write("---")
         
-        # CLINICAL INTERPRETATIONS
+        # ===== SECTION 6: WHAT-IF ANALYSIS =====
+        st.subheader("What-If Scenario Analysis")
+        st.write("See how lifestyle changes could affect your risk:")
+        
+        wif_col1, wif_col2, wif_col3 = st.columns(3)
+        
+        with wif_col1:
+            if payload["smoke"] == 1:
+                new_prob = calculate_what_if(payload, smoke_change=0)
+                if new_prob:
+                    reduction = probability * 100 - new_prob
+                    st.metric("If you quit smoking", f"{new_prob:.1f}%", f"-{reduction:.1f}%")
+        
+        with wif_col2:
+            if payload["active"] == 0:
+                new_prob = calculate_what_if(payload, active_change=1)
+                if new_prob:
+                    reduction = probability * 100 - new_prob
+                    st.metric("If you become active", f"{new_prob:.1f}%", f"-{reduction:.1f}%")
+        
+        with wif_col3:
+            if ap_hi > 130:
+                new_prob = calculate_what_if(payload, bp_reduction=15)
+                if new_prob:
+                    reduction = probability * 100 - new_prob
+                    st.metric("If BP reduced by 15 mmHg", f"{new_prob:.1f}%", f"-{reduction:.1f}%")
+        
+        st.write("---")
+        
+        # ===== SECTION 7: CLINICAL INTERPRETATIONS =====
         st.subheader("Clinical Interpretations")
         
         int_col1, int_col2, int_col3 = st.columns(3)
@@ -401,10 +477,10 @@ def main():
         
         st.write("---")
         
-        # DOWNLOAD REPORT
+        # ===== SECTION 8: DOWNLOAD REPORT =====
         st.subheader("Export Report")
         
-        report_text = generate_report(
+        report_text = generate_pdf_report(
             payload, output, contributors, (high_p, med_p, long_p)
         )
         
@@ -416,7 +492,7 @@ def main():
             use_container_width=True
         )
         
-        # MEDICAL DISCLAIMER
+        # ===== SECTION 9: MEDICAL DISCLAIMER =====
         st.markdown("""
 <div class="disclaimer">
 <strong>Medical Disclaimer</strong><br>
