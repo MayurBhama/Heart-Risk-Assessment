@@ -2,7 +2,7 @@
 
 *Production-ready cardiovascular disease prediction with XGBoost, MLOps pipeline, and clinical-grade explainability.*
 
-**[Live Demo](#)** *(Link to be added after deployment)*
+**[Live Demo](https://heart-risk-assessment-hm2ufzw9arcd2klkwap5ls.streamlit.app/)**
 
 ---
 
